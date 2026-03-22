@@ -61,6 +61,7 @@ Ensuite:
 
 ```bash
 php artisan config:clear
+composer dump-autoload -o
 php artisan migrate
 php artisan serve
 ```
