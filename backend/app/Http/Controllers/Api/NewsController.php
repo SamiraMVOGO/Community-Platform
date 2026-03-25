@@ -8,6 +8,15 @@ use Illuminate\Http\Request;
 
 class NewsController extends Controller
 {
+    private function authorizeNewsManager(Request $request): void
+    {
+        $role = $request->user()?->role;
+
+        if (!in_array($role, ['super_admin', 'admin', 'mayor'])) {
+            abort(403, 'Unauthorized');
+        }
+    }
+
     public function index()
     {
         $news = News::where('is_active', true)
@@ -25,9 +34,7 @@ class NewsController extends Controller
 
     public function store(Request $request)
     {
-        if ($request->user()->role !== 'admin') {
-            return response()->json(['message' => 'Unauthorized'], 403);
-        }
+        $this->authorizeNewsManager($request);
 
         $validated = $request->validate([
             'title' => 'required|string',
@@ -45,9 +52,7 @@ class NewsController extends Controller
 
     public function update(Request $request, $id)
     {
-        if ($request->user()->role !== 'admin') {
-            return response()->json(['message' => 'Unauthorized'], 403);
-        }
+        $this->authorizeNewsManager($request);
 
         $news = News::findOrFail($id);
 
@@ -64,9 +69,7 @@ class NewsController extends Controller
 
     public function destroy(Request $request, $id)
     {
-        if ($request->user()->role !== 'admin') {
-            return response()->json(['message' => 'Unauthorized'], 403);
-        }
+        $this->authorizeNewsManager($request);
 
         News::findOrFail($id)->delete();
         return response()->json(['message' => 'News deleted']);

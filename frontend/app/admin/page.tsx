@@ -1,10 +1,11 @@
 "use client"
 
+import { useEffect, useState } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { StatsCards } from "@/components/admin/stats-cards"
-import { getStats, profiles } from "@/lib/mock-data"
-import { CATEGORY_LABELS, STATUS_LABELS } from "@/lib/types"
+import { STATUS_LABELS } from "@/lib/types"
+import { apiFetch } from "@/lib/api"
 import {
   PieChart,
   Pie,
@@ -32,26 +33,43 @@ const COLORS = [
 ]
 
 export default function AdminDashboardPage() {
-  const stats = getStats()
+  const [stats, setStats] = useState({
+    totalProfiles: 0,
+    approvedProfiles: 0,
+    pendingProfiles: 0,
+    rejectedProfiles: 0,
+  })
+  const [secteurData, setSecteurData] = useState<Array<{ name: string; value: number }>>([])
+  const [niveauData, setNiveauData] = useState<Array<{ name: string; value: number }>>([])
+  const [categorieData, setCategorieData] = useState<Array<{ name: string; value: number }>>([])
+  const [recentProfiles, setRecentProfiles] = useState<any[]>([])
+  const [monthlyGrowth, setMonthlyGrowth] = useState<Array<{ month: string; count: number }>>([])
 
-  const secteurData = Object.entries(stats.parSecteur).map(([name, value]) => ({
-    name,
-    value,
-  }))
+  useEffect(() => {
+    const loadDashboard = async () => {
+      try {
+        const [dashboard, sectors, education, categories, pending, growth] = await Promise.all([
+          apiFetch<any>("/statistics/dashboard"),
+          apiFetch<Array<{ name: string; value: number }>>("/statistics/by-sector"),
+          apiFetch<Array<{ name: string; value: number }>>("/statistics/by-education"),
+          apiFetch<Array<{ name: string; value: number }>>("/statistics/by-category"),
+          apiFetch<{ data: any[] }>("/admin/profiles/pending"),
+          apiFetch<Array<{ month: string; count: number }>>("/statistics/monthly-growth"),
+        ])
 
-  const niveauData = Object.entries(stats.parNiveauEtude).map(([name, value]) => ({
-    name,
-    value,
-  }))
+        setStats(dashboard)
+        setSecteurData(sectors)
+        setNiveauData(education)
+        setCategorieData(categories)
+        setRecentProfiles((pending.data || []).slice(0, 5))
+        setMonthlyGrowth(growth.reverse())
+      } catch (error) {
+        console.error(error)
+      }
+    }
 
-  const categorieData = Object.entries(stats.parCategorie).map(([key, value]) => ({
-    name: CATEGORY_LABELS[key as keyof typeof CATEGORY_LABELS] || key,
-    value,
-  }))
-
-  const recentProfiles = profiles
-    .sort((a, b) => new Date(b.dateInscription).getTime() - new Date(a.dateInscription).getTime())
-    .slice(0, 5)
+    loadDashboard()
+  }, [])
 
   return (
     <div className="flex flex-col gap-6">
@@ -61,10 +79,10 @@ export default function AdminDashboardPage() {
       </div>
 
       <StatsCards
-        total={stats.total}
-        valides={stats.valides}
-        enAttente={stats.enAttente}
-        rejetes={stats.rejetes}
+        total={stats.totalProfiles}
+        valides={stats.approvedProfiles}
+        enAttente={stats.pendingProfiles}
+        rejetes={stats.rejectedProfiles}
       />
 
       {/* Charts row */}
@@ -124,9 +142,9 @@ export default function AdminDashboardPage() {
           </CardHeader>
           <CardContent>
             <ResponsiveContainer width="100%" height={250}>
-              <LineChart data={stats.inscriptionsParMois}>
+              <LineChart data={monthlyGrowth}>
                 <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="mois" />
+                <XAxis dataKey="month" />
                 <YAxis />
                 <Tooltip />
                 <Legend />
@@ -171,11 +189,14 @@ export default function AdminDashboardPage() {
           <div className="flex flex-col gap-3">
             {recentProfiles.map((profile) => {
               const statusColor =
-                profile.statut === "valide"
+                profile.status === "approved"
                   ? "bg-accent/10 text-accent border-accent/20"
-                  : profile.statut === "en_attente"
+                  : profile.status === "pending"
                     ? "bg-chart-3/10 text-chart-3 border-chart-3/20"
                     : "bg-destructive/10 text-destructive border-destructive/20"
+
+              const [prenom, ...nomParts] = (profile.user?.name || "Utilisateur").split(" ")
+              const nom = nomParts.join(" ") || prenom
 
               return (
                 <div
@@ -183,22 +204,22 @@ export default function AdminDashboardPage() {
                   className="flex items-center gap-3 rounded-lg border border-border p-3"
                 >
                   <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10 text-sm font-bold text-primary">
-                    {profile.prenom[0]}{profile.nom[0]}
+                    {prenom[0]}{nom[0]}
                   </div>
                   <div className="flex-1">
                     <p className="text-sm font-medium text-foreground">
-                      {profile.prenom} {profile.nom}
+                      {prenom} {nom}
                     </p>
-                    <p className="text-xs text-muted-foreground">{profile.metier}</p>
+                    <p className="text-xs text-muted-foreground">{profile.sector || "Secteur"}</p>
                   </div>
                   <Badge variant="secondary" className="text-xs">
-                    {CATEGORY_LABELS[profile.categorie]}
+                    {profile.category?.name || "Categorie"}
                   </Badge>
                   <Badge className={statusColor} variant="outline">
-                    {STATUS_LABELS[profile.statut]}
+                    {STATUS_LABELS[profile.status === "approved" ? "valide" : profile.status === "pending" ? "en_attente" : "rejete"]}
                   </Badge>
                   <span className="text-xs text-muted-foreground">
-                    {new Date(profile.dateInscription).toLocaleDateString("fr-FR")}
+                    {new Date(profile.created_at).toLocaleDateString("fr-FR")}
                   </span>
                 </div>
               )

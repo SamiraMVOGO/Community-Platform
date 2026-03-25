@@ -13,11 +13,13 @@ return new class extends Migration
     {
         Schema::create('documents', function (Blueprint $table) {
             $table->id();
-            $table->foreignId('profile_id')->constrained('profiles')->onDelete('cascade');
+            $table->unsignedBigInteger('profile_id');
             $table->enum('type', ['cv', 'photo', 'legal']);
             $table->string('path');
             $table->string('original_name');
             $table->timestamps();
+
+            $table->index('profile_id');
         });
     }
 

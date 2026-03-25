@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import { toast } from "sonner"
 import { z } from "zod"
@@ -17,9 +17,9 @@ import {
 } from "@/components/ui/select"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { CATEGORY_LABELS, NIVEAUX_ETUDE, SECTEURS } from "@/lib/types"
-import type { Category } from "@/lib/types"
-import { Check, ChevronLeft, ChevronRight, User, Briefcase, FileText, Eye } from "lucide-react"
+import { NIVEAUX_ETUDE, SECTEURS } from "@/lib/types"
+import { Check, ChevronLeft, ChevronRight, User, Briefcase, FileText, Eye, EyeOff } from "lucide-react"
+import { apiFetch, login, persistAuth } from "@/lib/api"
 
 const steps = [
   { id: 1, label: "Informations personnelles", icon: User },
@@ -33,6 +33,10 @@ const step1Schema = z.object({
   prenom: z.string().min(2, "Le prenom doit contenir au moins 2 caracteres"),
   email: z.string().email("Adresse email invalide"),
   telephone: z.string().min(8, "Numero de telephone invalide"),
+  requestedRole: z.enum(["user", "agent_municipal"]),
+  municipalityId: z.string().optional(),
+  password: z.string().min(6, "Le mot de passe doit contenir au moins 6 caracteres"),
+  passwordConfirmation: z.string().min(6, "Veuillez confirmer le mot de passe"),
 })
 
 const step2Schema = z.object({
@@ -49,11 +53,20 @@ export default function InscriptionPage() {
   const router = useRouter()
   const [step, setStep] = useState(1)
   const [errors, setErrors] = useState<Record<string, string>>({})
+  const [categories, setCategories] = useState<Array<{ id: number; name: string }>>([])
+  const [municipalities, setMunicipalities] = useState<Array<{ id: number; name: string }>>([])
+  const [submitting, setSubmitting] = useState(false)
+  const [showPassword, setShowPassword] = useState(false)
+  const [showPasswordConfirmation, setShowPasswordConfirmation] = useState(false)
   const [formData, setFormData] = useState({
     nom: "",
     prenom: "",
     email: "",
     telephone: "",
+    requestedRole: "user",
+    municipalityId: "",
+    password: "",
+    passwordConfirmation: "",
     categorie: "",
     secteur: "",
     metier: "",
@@ -65,6 +78,23 @@ export default function InscriptionPage() {
     cv: null as File | null,
     photo: null as File | null,
   })
+
+  useEffect(() => {
+    const fetchInitialData = async () => {
+      try {
+        const [categoryData, municipalityData] = await Promise.all([
+          apiFetch<Array<{ id: number; name: string }>>("/categories"),
+          apiFetch<Array<{ id: number; name: string }>>("/municipalities/public"),
+        ])
+        setCategories(categoryData)
+        setMunicipalities(municipalityData)
+      } catch (error) {
+        console.error(error)
+      }
+    }
+
+    fetchInitialData()
+  }, [])
 
   function updateField(field: string, value: string) {
     setFormData((prev) => ({ ...prev, [field]: value }))
@@ -83,7 +113,21 @@ export default function InscriptionPage() {
           prenom: formData.prenom,
           email: formData.email,
           telephone: formData.telephone,
+          requestedRole: formData.requestedRole,
+          municipalityId: formData.municipalityId,
+          password: formData.password,
+          passwordConfirmation: formData.passwordConfirmation,
         })
+
+        if (formData.requestedRole === "agent_municipal" && !formData.municipalityId) {
+          setErrors({ municipalityId: "Veuillez selectionner la commune pour votre candidature agent." })
+          return false
+        }
+
+        if (formData.password !== formData.passwordConfirmation) {
+          setErrors({ passwordConfirmation: "Les mots de passe ne correspondent pas" })
+          return false
+        }
       } else if (stepNum === 2) {
         step2Schema.parse({
           categorie: formData.categorie,
@@ -119,11 +163,62 @@ export default function InscriptionPage() {
     setStep((s) => Math.max(s - 1, 1))
   }
 
-  function handleSubmit() {
-    toast.success("Inscription soumise avec succes ! Votre profil est en attente de validation.", {
-      duration: 5000,
-    })
-    setTimeout(() => router.push("/"), 2000)
+  async function handleSubmit() {
+    if (submitting) {
+      return
+    }
+
+    try {
+      setSubmitting(true)
+
+      await apiFetch<{ message: string; user: { id: number } }>("/auth/register", {
+        method: "POST",
+        body: JSON.stringify({
+          name: `${formData.prenom} ${formData.nom}`.trim(),
+          email: formData.email,
+          password: formData.password,
+          password_confirmation: formData.passwordConfirmation,
+          requested_role: formData.requestedRole,
+          municipality_id: formData.municipalityId ? Number(formData.municipalityId) : null,
+        }),
+      })
+
+      const auth = await login(formData.email, formData.password)
+      persistAuth(auth)
+
+      const profilePayload = new FormData()
+      profilePayload.append("category_id", String(Number(formData.categorie)))
+      profilePayload.append("bio", formData.bio)
+      profilePayload.append("skills", formData.competences)
+      profilePayload.append("experience", formData.experience)
+      profilePayload.append("education_level", formData.niveauEtude)
+      profilePayload.append("sector", formData.secteur)
+      profilePayload.append("location", formData.localisation)
+      profilePayload.append("phone", formData.telephone)
+
+      if (formData.cv) {
+        profilePayload.append("cv", formData.cv)
+      }
+
+      if (formData.photo) {
+        profilePayload.append("photo", formData.photo)
+      }
+
+      await apiFetch("/profiles", {
+        method: "POST",
+        body: profilePayload,
+      })
+
+      toast.success("Inscription soumise avec succes ! Votre profil est en attente de validation.", {
+        duration: 5000,
+      })
+      setTimeout(() => router.push("/profils"), 1200)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Echec de l'inscription"
+      toast.error(message)
+    } finally {
+      setSubmitting(false)
+    }
   }
 
   return (
@@ -219,6 +314,36 @@ export default function InscriptionPage() {
               />
               {errors.telephone && <p className="text-xs text-destructive">{errors.telephone}</p>}
             </div>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="flex flex-col gap-1.5">
+                <Label>Type de compte *</Label>
+                <Select value={formData.requestedRole} onValueChange={(v) => updateField("requestedRole", v)}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Selectionnez" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="user">Utilisateur standard</SelectItem>
+                    <SelectItem value="agent_municipal">Candidature agent municipal</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <Label>Commune {formData.requestedRole === "agent_municipal" ? "*" : "(optionnel)"}</Label>
+                <Select value={formData.municipalityId} onValueChange={(v) => updateField("municipalityId", v)}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Selectionnez une commune" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {municipalities.map((municipality) => (
+                      <SelectItem key={municipality.id} value={String(municipality.id)}>
+                        {municipality.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {errors.municipalityId && <p className="text-xs text-destructive">{errors.municipalityId}</p>}
+              </div>
+            </div>
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="localisation">Localisation</Label>
               <Input
@@ -227,6 +352,56 @@ export default function InscriptionPage() {
                 value={formData.localisation}
                 onChange={(e) => updateField("localisation", e.target.value)}
               />
+            </div>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="password">Mot de passe *</Label>
+                <div className="relative">
+                  <Input
+                    id="password"
+                    type={showPassword ? "text" : "password"}
+                    placeholder="Minimum 6 caracteres"
+                    value={formData.password}
+                    onChange={(e) => updateField("password", e.target.value)}
+                    className="pr-10"
+                  />
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="absolute right-1 top-1/2 h-8 w-8 -translate-y-1/2"
+                    onClick={() => setShowPassword((prev) => !prev)}
+                    aria-label={showPassword ? "Masquer le mot de passe" : "Afficher le mot de passe"}
+                  >
+                    {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </Button>
+                </div>
+                {errors.password && <p className="text-xs text-destructive">{errors.password}</p>}
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="passwordConfirmation">Confirmer le mot de passe *</Label>
+                <div className="relative">
+                  <Input
+                    id="passwordConfirmation"
+                    type={showPasswordConfirmation ? "text" : "password"}
+                    placeholder="Confirmez votre mot de passe"
+                    value={formData.passwordConfirmation}
+                    onChange={(e) => updateField("passwordConfirmation", e.target.value)}
+                    className="pr-10"
+                  />
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="absolute right-1 top-1/2 h-8 w-8 -translate-y-1/2"
+                    onClick={() => setShowPasswordConfirmation((prev) => !prev)}
+                    aria-label={showPasswordConfirmation ? "Masquer la confirmation du mot de passe" : "Afficher la confirmation du mot de passe"}
+                  >
+                    {showPasswordConfirmation ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </Button>
+                </div>
+                {errors.passwordConfirmation && <p className="text-xs text-destructive">{errors.passwordConfirmation}</p>}
+              </div>
             </div>
           </CardContent>
         </Card>
@@ -248,9 +423,9 @@ export default function InscriptionPage() {
                     <SelectValue placeholder="Selectionnez" />
                   </SelectTrigger>
                   <SelectContent>
-                    {Object.entries(CATEGORY_LABELS).map(([key, label]) => (
-                      <SelectItem key={key} value={key}>
-                        {label}
+                    {categories.map((category) => (
+                      <SelectItem key={category.id} value={String(category.id)}>
+                        {category.name}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -387,6 +562,18 @@ export default function InscriptionPage() {
                 <h3 className="mb-2 text-sm font-semibold text-foreground">Informations personnelles</h3>
                 <dl className="grid gap-2 text-sm sm:grid-cols-2">
                   <div>
+                    <dt className="text-muted-foreground">Type de compte</dt>
+                    <dd className="font-medium text-foreground">
+                      {formData.requestedRole === "agent_municipal" ? "Candidature agent municipal" : "Utilisateur standard"}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-muted-foreground">Commune cible</dt>
+                    <dd className="font-medium text-foreground">
+                      {municipalities.find((m) => String(m.id) === formData.municipalityId)?.name || "Non renseignee"}
+                    </dd>
+                  </div>
+                  <div>
                     <dt className="text-muted-foreground">Nom complet</dt>
                     <dd className="font-medium text-foreground">{formData.prenom} {formData.nom}</dd>
                   </div>
@@ -411,7 +598,7 @@ export default function InscriptionPage() {
                     <dt className="text-muted-foreground">Categorie</dt>
                     <dd>
                       <Badge variant="secondary">
-                        {CATEGORY_LABELS[formData.categorie as Category] || formData.categorie}
+                        {categories.find((c) => String(c.id) === formData.categorie)?.name || formData.categorie}
                       </Badge>
                     </dd>
                   </div>
@@ -471,8 +658,8 @@ export default function InscriptionPage() {
             <ChevronRight className="ml-1.5 h-4 w-4" />
           </Button>
         ) : (
-          <Button onClick={handleSubmit} className="bg-accent text-accent-foreground hover:bg-accent/90">
-            Soumettre mon inscription
+          <Button onClick={handleSubmit} disabled={submitting} className="bg-accent text-accent-foreground hover:bg-accent/90">
+            {submitting ? "Soumission..." : "Soumettre mon inscription"}
             <Check className="ml-1.5 h-4 w-4" />
           </Button>
         )}

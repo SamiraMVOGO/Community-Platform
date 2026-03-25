@@ -24,6 +24,7 @@ class User extends Authenticatable
         'password',
         'role',
         'municipality_id',
+        'created_by',
         'is_active',
     ];
 
@@ -69,5 +70,20 @@ class User extends Authenticatable
     public function activityLogs()
     {
         return $this->hasMany(ActivityLog::class);
+    }
+
+    public function creator()
+    {
+        return $this->belongsTo(User::class, 'created_by');
+    }
+
+    public function createdUsers()
+    {
+        return $this->hasMany(User::class, 'created_by');
+    }
+
+    public function loginHistories()
+    {
+        return $this->hasMany(LoginHistory::class);
     }
 }

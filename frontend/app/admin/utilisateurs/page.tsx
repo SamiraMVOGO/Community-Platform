@@ -2,10 +2,11 @@
 
 import { useState, useEffect, useMemo } from "react"
 import { toast } from "sonner"
-import { ROLE_LABELS, type User, type Municipality } from "@/lib/types"
+import { ROLE_LABELS, type User, type Municipality, type PaginatedApiData } from "@/lib/types"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
 import {
   Select,
   SelectContent,
@@ -33,40 +34,75 @@ import {
 import {
   Search,
   Eye,
-  Trash2,
+  Plus,
   Download,
   ChevronLeft,
   ChevronRight,
 } from "lucide-react"
+import { apiFetch, getStoredUser } from "@/lib/api"
 
 const ITEMS_PER_PAGE = 10
+
+interface Category {
+  id: number
+  name: string
+}
+
+interface RegisterByAgentPayload {
+  name: string
+  email: string
+  password: string
+  password_confirmation: string
+  phone: string
+  category_id: number
+  sector: string
+  education_level: string
+  experience: string
+  location: string
+  skills: string
+  bio: string
+  municipality_id?: number
+}
 
 export default function UtilisateursPage() {
   const [users, setUsers] = useState<User[]>([])
   const [municipalities, setMunicipalities] = useState<Municipality[]>([])
+  const [categories, setCategories] = useState<Category[]>([])
   const [search, setSearch] = useState("")
   const [roleFilter, setRoleFilter] = useState("")
   const [municipalityFilter, setMunicipalityFilter] = useState("")
   const [page, setPage] = useState(1)
   const [selectedUser, setSelectedUser] = useState<User | null>(null)
+  const [actor, setActor] = useState<User | null>(null)
+  const [openCreate, setOpenCreate] = useState(false)
+  const [submitting, setSubmitting] = useState(false)
   const [loading, setLoading] = useState(true)
+  const [formData, setFormData] = useState<RegisterByAgentPayload>({
+    name: "",
+    email: "",
+    password: "",
+    password_confirmation: "",
+    phone: "",
+    category_id: 0,
+    sector: "",
+    education_level: "",
+    experience: "",
+    location: "",
+    skills: "",
+    bio: "",
+  })
 
   useEffect(() => {
+    setActor(getStoredUser())
     fetchUsers()
     fetchMunicipalities()
+    fetchCategories()
   }, [])
 
   const fetchUsers = async () => {
     try {
-      const response = await fetch("/api/admin/users", {
-        headers: {
-          Authorization: `Bearer ${localStorage.getItem("token")}`,
-        },
-      })
-      if (response.ok) {
-        const data = await response.json()
-        setUsers(data.data || [])
-      }
+      const data = await apiFetch<PaginatedApiData<User>>("/admin/users")
+      setUsers(data.data || [])
     } catch (error) {
       toast.error("Erreur lors de la récupération des utilisateurs")
       console.error(error)
@@ -77,22 +113,26 @@ export default function UtilisateursPage() {
 
   const fetchMunicipalities = async () => {
     try {
-      const response = await fetch("/api/municipalities", {
-        headers: {
-          Authorization: `Bearer ${localStorage.getItem("token")}`,
-        },
-      })
-      if (response.ok) {
-        const data = await response.json()
-        setMunicipalities(data.data || [])
-      }
+      const data = await apiFetch<PaginatedApiData<Municipality>>("/municipalities")
+      setMunicipalities(data.data || [])
+    } catch (error) {
+      console.error(error)
+    }
+  }
+
+  const fetchCategories = async () => {
+    try {
+      const data = await apiFetch<Category[]>("/categories")
+      setCategories(data || [])
     } catch (error) {
       console.error(error)
     }
   }
 
   const filtered = useMemo(() => {
-    let result = users
+    let result = [...users].sort(
+      (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+    )
     if (search) {
       const q = search.toLowerCase()
       result = result.filter(
@@ -115,23 +155,98 @@ export default function UtilisateursPage() {
 
   const toggleUserStatus = async (userId: number) => {
     try {
-      const response = await fetch(`/api/admin/users/${userId}/toggle-status`, {
+      await apiFetch<{ message: string }>(`/admin/users/${userId}/toggle-status`, {
         method: "PUT",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${localStorage.getItem("token")}`,
-        },
       })
-
-      if (response.ok) {
-        toast.success("Statut utilisateur modifié")
-        fetchUsers()
-      } else {
-        toast.error("Erreur lors de la modification")
-      }
+      toast.success("Statut utilisateur modifié")
+      fetchUsers()
     } catch (error) {
       toast.error("Erreur de connexion")
       console.error(error)
+    }
+  }
+
+  const downloadExport = async (kind: "users" | "profiles") => {
+    try {
+      const token = localStorage.getItem("token")
+      const baseUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api"
+      const response = await fetch(`${baseUrl}/admin/exports/${kind}`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      })
+
+      if (!response.ok) {
+        throw new Error(`Erreur export (${response.status})`)
+      }
+
+      const blob = await response.blob()
+      const url = window.URL.createObjectURL(blob)
+      const link = document.createElement("a")
+      link.href = url
+      link.download = kind === "users" ? "users_export.csv" : "profiles_export.csv"
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      window.URL.revokeObjectURL(url)
+      toast.success("Export telecharge")
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Echec de l'export")
+    }
+  }
+
+  const createRegisteredUser = async () => {
+    if (!formData.name || !formData.email || !formData.password) {
+      toast.error("Nom, email et mot de passe sont requis")
+      return
+    }
+
+    if (formData.password !== formData.password_confirmation) {
+      toast.error("Les mots de passe ne correspondent pas")
+      return
+    }
+
+    if (!formData.category_id) {
+      toast.error("Veuillez sélectionner une catégorie")
+      return
+    }
+
+    try {
+      setSubmitting(true)
+      const payload: RegisterByAgentPayload = {
+        ...formData,
+      }
+
+      if (actor && ["super_admin", "admin"].includes(actor.role) && !payload.municipality_id) {
+        toast.error("Veuillez sélectionner une mairie")
+        return
+      }
+
+      await apiFetch<{ message: string }>("/auth/register-by-agent", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      })
+
+      toast.success("Utilisateur enregistré avec succès")
+      setOpenCreate(false)
+      setFormData({
+        name: "",
+        email: "",
+        password: "",
+        password_confirmation: "",
+        phone: "",
+        category_id: 0,
+        sector: "",
+        education_level: "",
+        experience: "",
+        location: "",
+        skills: "",
+        bio: "",
+      })
+      fetchUsers()
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Erreur lors de la création"
+      toast.error(message)
+    } finally {
+      setSubmitting(false)
     }
   }
 
@@ -160,6 +275,123 @@ export default function UtilisateursPage() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-foreground">Utilisateurs</h1>
           <p className="text-muted-foreground">Gestion des comptes inscrits sur la plateforme</p>
+        </div>
+        <Dialog open={openCreate} onOpenChange={setOpenCreate}>
+          <DialogTrigger asChild>
+            <Button>
+              <Plus className="mr-1.5 h-4 w-4" />
+              Enregistrer un utilisateur
+            </Button>
+          </DialogTrigger>
+          <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-xl">
+            <DialogHeader>
+              <DialogTitle>Inscription d'utilisateur par agent</DialogTitle>
+              <DialogDescription>
+                Créez un compte utilisateur et son profil depuis le dashboard.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="grid gap-3">
+              <div className="grid gap-1.5">
+                <Label htmlFor="name">Nom complet</Label>
+                <Input id="name" value={formData.name} onChange={(e) => setFormData((p) => ({ ...p, name: e.target.value }))} />
+              </div>
+              <div className="grid gap-1.5">
+                <Label htmlFor="email">Email</Label>
+                <Input id="email" type="email" value={formData.email} onChange={(e) => setFormData((p) => ({ ...p, email: e.target.value }))} />
+              </div>
+              <div className="grid gap-1.5">
+                <Label htmlFor="phone">Téléphone</Label>
+                <Input id="phone" value={formData.phone} onChange={(e) => setFormData((p) => ({ ...p, phone: e.target.value }))} />
+              </div>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div className="grid gap-1.5">
+                  <Label htmlFor="password">Mot de passe</Label>
+                  <Input id="password" type="password" value={formData.password} onChange={(e) => setFormData((p) => ({ ...p, password: e.target.value }))} />
+                </div>
+                <div className="grid gap-1.5">
+                  <Label htmlFor="password_confirmation">Confirmation</Label>
+                  <Input id="password_confirmation" type="password" value={formData.password_confirmation} onChange={(e) => setFormData((p) => ({ ...p, password_confirmation: e.target.value }))} />
+                </div>
+              </div>
+
+              {actor && ["super_admin", "admin"].includes(actor.role) && (
+                <div className="grid gap-1.5">
+                  <Label>Mairie</Label>
+                  <Select value={formData.municipality_id?.toString() || ""} onValueChange={(v) => setFormData((p) => ({ ...p, municipality_id: Number(v) }))}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Sélectionner une mairie" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {municipalities.map((m) => (
+                        <SelectItem key={m.id} value={m.id.toString()}>
+                          {m.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+
+              <div className="grid gap-1.5">
+                <Label>Catégorie</Label>
+                <Select value={formData.category_id ? String(formData.category_id) : ""} onValueChange={(v) => setFormData((p) => ({ ...p, category_id: Number(v) }))}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Sélectionner une catégorie" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {categories.map((c) => (
+                      <SelectItem key={c.id} value={String(c.id)}>
+                        {c.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="grid gap-1.5">
+                <Label htmlFor="sector">Secteur</Label>
+                <Input id="sector" value={formData.sector} onChange={(e) => setFormData((p) => ({ ...p, sector: e.target.value }))} />
+              </div>
+              <div className="grid gap-1.5">
+                <Label htmlFor="education_level">Niveau d'étude</Label>
+                <Input id="education_level" value={formData.education_level} onChange={(e) => setFormData((p) => ({ ...p, education_level: e.target.value }))} />
+              </div>
+              <div className="grid gap-1.5">
+                <Label htmlFor="experience">Expérience</Label>
+                <Input id="experience" value={formData.experience} onChange={(e) => setFormData((p) => ({ ...p, experience: e.target.value }))} />
+              </div>
+              <div className="grid gap-1.5">
+                <Label htmlFor="location">Localisation</Label>
+                <Input id="location" value={formData.location} onChange={(e) => setFormData((p) => ({ ...p, location: e.target.value }))} />
+              </div>
+              <div className="grid gap-1.5">
+                <Label htmlFor="skills">Compétences (texte)</Label>
+                <Input id="skills" value={formData.skills} onChange={(e) => setFormData((p) => ({ ...p, skills: e.target.value }))} />
+              </div>
+              <div className="grid gap-1.5">
+                <Label htmlFor="bio">Biographie</Label>
+                <Input id="bio" value={formData.bio} onChange={(e) => setFormData((p) => ({ ...p, bio: e.target.value }))} />
+              </div>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setOpenCreate(false)}>
+                Annuler
+              </Button>
+              <Button onClick={createRegisteredUser} disabled={submitting}>
+                {submitting ? "Enregistrement..." : "Enregistrer"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" onClick={() => downloadExport("users")}>
+            <Download className="mr-1.5 h-4 w-4" />
+            Export utilisateurs
+          </Button>
+          <Button variant="outline" onClick={() => downloadExport("profiles")}>
+            <Download className="mr-1.5 h-4 w-4" />
+            Export profils
+          </Button>
         </div>
       </div>
 
@@ -317,10 +549,10 @@ export default function UtilisateursPage() {
                       variant="ghost"
                       size="icon"
                       className="h-8 w-8 text-muted-foreground hover:text-blue-600"
-                      onClick={() => selectedUser && toggleUserStatus(selectedUser.id)}
+                      onClick={() => toggleUserStatus(user.id)}
                       aria-label="Changer le statut"
                     >
-                      {selectedUser?.is_active ? "✓" : "✕"}
+                      {user.is_active ? "✓" : "✕"}
                     </Button>
                   </div>
                 </TableCell>

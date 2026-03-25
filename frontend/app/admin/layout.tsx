@@ -1,12 +1,47 @@
+"use client"
+
+import { useEffect, useState } from "react"
+import { usePathname, useRouter } from "next/navigation"
 import { AdminSidebar } from "@/components/layout/admin-sidebar"
 import { SidebarProvider, SidebarTrigger, SidebarInset } from "@/components/ui/sidebar"
 import { Separator } from "@/components/ui/separator"
+import { canAccessAdminPath, ensureAuthorizedAdminAccess, getDashboardByRole } from "@/lib/auth"
 
 export default function AdminLayout({
   children,
 }: {
   children: React.ReactNode
 }) {
+  const router = useRouter()
+  const pathname = usePathname()
+  const [authorized, setAuthorized] = useState(false)
+
+  useEffect(() => {
+    const user = ensureAuthorizedAdminAccess()
+
+    if (!user) {
+      router.replace("/connexion")
+      return
+    }
+
+    const roleHome = getDashboardByRole(user.role)
+    if (pathname === "/admin" && roleHome !== "/admin") {
+      router.replace(roleHome)
+      return
+    }
+
+    if (!canAccessAdminPath(user.role, pathname)) {
+      router.replace(roleHome)
+      return
+    }
+
+    setAuthorized(true)
+  }, [pathname, router])
+
+  if (!authorized) {
+    return null
+  }
+
   return (
     <SidebarProvider>
       <AdminSidebar />

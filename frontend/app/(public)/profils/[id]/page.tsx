@@ -1,7 +1,12 @@
+"use client"
+
 import Link from "next/link"
-import { notFound } from "next/navigation"
-import { getProfileById } from "@/lib/mock-data"
+import { useEffect, useState } from "react"
+import { useParams, useRouter } from "next/navigation"
+import { apiFetch } from "@/lib/api"
 import { CATEGORY_LABELS, STATUS_LABELS } from "@/lib/types"
+import { getCategoryFromSlug } from "@/lib/category-slugs"
+import { getDocumentDownloadUrl } from "@/lib/document-links"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -17,22 +22,42 @@ import {
   Calendar,
 } from "lucide-react"
 
-export default async function ProfileDetailPage({
-  params,
-}: {
-  params: Promise<{ id: string }>
-}) {
-  const { id } = await params
-  const profile = getProfileById(id)
+export default function ProfileDetailPage() {
+  const params = useParams<{ id: string }>()
+  const router = useRouter()
+  const [profile, setProfile] = useState<any>(null)
+  const [loading, setLoading] = useState(true)
 
-  if (!profile) {
-    notFound()
+  useEffect(() => {
+    const loadProfile = async () => {
+      try {
+        const data = await apiFetch<any>(`/profiles/${params.id}`)
+        setProfile(data)
+      } catch {
+        router.replace("/profils")
+      } finally {
+        setLoading(false)
+      }
+    }
+
+    loadProfile()
+  }, [params.id, router])
+
+  if (loading || !profile) {
+    return null
   }
 
+  const status = profile.status === "approved" ? "valide" : profile.status === "pending" ? "en_attente" : "rejete"
+  const categoryKey = getCategoryFromSlug(profile.category?.slug)
+  const categoryLabel = categoryKey ? CATEGORY_LABELS[categoryKey] : (profile.category?.name || "Categorie")
+  const [prenom, ...nomParts] = (profile.user?.name || "Utilisateur").split(" ")
+  const nom = nomParts.join(" ") || prenom
+  const competences = (profile.skills || "").split(",").map((c: string) => c.trim()).filter(Boolean)
+
   const statusColor =
-    profile.statut === "valide"
+    status === "valide"
       ? "bg-accent/10 text-accent border-accent/20"
-      : profile.statut === "en_attente"
+      : status === "en_attente"
         ? "bg-chart-3/10 text-chart-3 border-chart-3/20"
         : "bg-destructive/10 text-destructive border-destructive/20"
 
@@ -48,21 +73,21 @@ export default async function ProfileDetailPage({
       {/* Header */}
       <div className="flex flex-col gap-6 sm:flex-row sm:items-start">
         <div className="flex h-20 w-20 shrink-0 items-center justify-center rounded-2xl bg-primary/10 text-2xl font-bold text-primary">
-          {profile.prenom[0]}{profile.nom[0]}
+          {prenom[0]}{nom[0]}
         </div>
         <div className="flex-1">
           <div className="flex flex-wrap items-center gap-2">
             <h1 className="text-3xl font-bold tracking-tight text-foreground">
-              {profile.prenom} {profile.nom}
+                {prenom} {nom}
             </h1>
             <Badge className={statusColor} variant="outline">
-              {STATUS_LABELS[profile.statut]}
+                {STATUS_LABELS[status]}
             </Badge>
           </div>
-          <p className="mt-1 text-lg text-muted-foreground">{profile.metier}</p>
+            <p className="mt-1 text-lg text-muted-foreground">{profile.sector || "Operateur economique"}</p>
           <div className="mt-3 flex flex-wrap gap-2">
-            <Badge variant="secondary">{CATEGORY_LABELS[profile.categorie]}</Badge>
-            <Badge variant="outline">{profile.secteur}</Badge>
+              <Badge variant="secondary">{categoryLabel}</Badge>
+              <Badge variant="outline">{profile.sector || "Non precise"}</Badge>
           </div>
         </div>
       </div>
@@ -77,7 +102,7 @@ export default async function ProfileDetailPage({
               <CardTitle>Biographie</CardTitle>
             </CardHeader>
             <CardContent>
-              <p className="leading-relaxed text-foreground/80">{profile.bio}</p>
+              <p className="leading-relaxed text-foreground/80">{profile.bio || "Aucune biographie"}</p>
             </CardContent>
           </Card>
 
@@ -87,7 +112,7 @@ export default async function ProfileDetailPage({
             </CardHeader>
             <CardContent>
               <div className="flex flex-wrap gap-2">
-                {profile.competences.map((comp) => (
+                {competences.map((comp: string) => (
                   <Badge key={comp} variant="secondary" className="px-3 py-1.5">
                     {comp}
                   </Badge>
@@ -106,21 +131,21 @@ export default async function ProfileDetailPage({
                   <Briefcase className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
                   <div>
                     <dt className="text-sm text-muted-foreground">{"Secteur d'activite"}</dt>
-                    <dd className="font-medium text-foreground">{profile.secteur}</dd>
+                    <dd className="font-medium text-foreground">{profile.sector || "Non precise"}</dd>
                   </div>
                 </div>
                 <div className="flex items-start gap-3">
                   <GraduationCap className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
                   <div>
                     <dt className="text-sm text-muted-foreground">{"Niveau d'etude"}</dt>
-                    <dd className="font-medium text-foreground">{profile.niveauEtude}</dd>
+                    <dd className="font-medium text-foreground">{profile.education_level || "Non precise"}</dd>
                   </div>
                 </div>
                 <div className="flex items-start gap-3">
                   <Clock className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
                   <div>
                     <dt className="text-sm text-muted-foreground">Experience</dt>
-                    <dd className="font-medium text-foreground">{profile.experience}</dd>
+                    <dd className="font-medium text-foreground">{profile.experience || "Non precise"}</dd>
                   </div>
                 </div>
                 <div className="flex items-start gap-3">
@@ -128,7 +153,7 @@ export default async function ProfileDetailPage({
                   <div>
                     <dt className="text-sm text-muted-foreground">{"Date d'inscription"}</dt>
                     <dd className="font-medium text-foreground">
-                      {new Date(profile.dateInscription).toLocaleDateString("fr-FR", {
+                      {new Date(profile.created_at).toLocaleDateString("fr-FR", {
                         day: "numeric",
                         month: "long",
                         year: "numeric",
@@ -137,6 +162,29 @@ export default async function ProfileDetailPage({
                   </div>
                 </div>
               </dl>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Documents uploades</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {profile.documents?.length ? (
+                <div className="flex flex-wrap gap-2">
+                  {profile.documents.map((document: { id: number; path?: string; type?: string; original_name?: string }) => (
+                    <a
+                      key={document.id}
+                      href={getDocumentDownloadUrl(document.id, document.path, document.original_name)}
+                      className="inline-flex items-center rounded-md border border-border px-2.5 py-1 text-xs text-foreground hover:bg-muted"
+                    >
+                      {(document.type || "document").toUpperCase()} - {document.original_name || "Telecharger"}
+                    </a>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground">Aucun document disponible.</p>
+              )}
             </CardContent>
           </Card>
         </div>
@@ -150,15 +198,15 @@ export default async function ProfileDetailPage({
             <CardContent className="flex flex-col gap-3">
               <div className="flex items-center gap-2 text-sm">
                 <Mail className="h-4 w-4 shrink-0 text-muted-foreground" />
-                <span className="text-foreground">{profile.email}</span>
+                <span className="text-foreground">{profile.user?.email}</span>
               </div>
               <div className="flex items-center gap-2 text-sm">
                 <Phone className="h-4 w-4 shrink-0 text-muted-foreground" />
-                <span className="text-foreground">{profile.telephone}</span>
+                <span className="text-foreground">{profile.phone || "N/A"}</span>
               </div>
               <div className="flex items-center gap-2 text-sm">
                 <MapPin className="h-4 w-4 shrink-0 text-muted-foreground" />
-                <span className="text-foreground">{profile.localisation}</span>
+                <span className="text-foreground">{profile.location || "Non precise"}</span>
               </div>
             </CardContent>
           </Card>
@@ -169,7 +217,7 @@ export default async function ProfileDetailPage({
             </CardHeader>
             <CardContent>
               <Badge variant="secondary" className="text-sm">
-                {CATEGORY_LABELS[profile.categorie]}
+                  {categoryLabel}
               </Badge>
               <p className="mt-2 text-xs text-muted-foreground">
                 {"Ce profil est enregistre dans l'annuaire communal des operateurs economiques."}

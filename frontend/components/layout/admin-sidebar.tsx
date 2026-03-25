@@ -1,6 +1,7 @@
 "use client"
 
 import Link from "next/link"
+import { useRouter } from "next/navigation"
 import { usePathname } from "next/navigation"
 import {
   LayoutDashboard,
@@ -11,6 +12,7 @@ import {
   ArrowLeft,
   Users as UsersIcon,
   Building,
+  LogOut,
 } from "lucide-react"
 import {
   Sidebar,
@@ -24,18 +26,58 @@ import {
   SidebarMenuItem,
   SidebarFooter,
 } from "@/components/ui/sidebar"
+import { clearAuth, getStoredUser } from "@/lib/api"
+import type { UserRole } from "@/lib/types"
 
 const adminNav = [
-  { label: "Tableau de bord", href: "/admin", icon: LayoutDashboard },
-  { label: "Mairies", href: "/admin/municipalities", icon: Building },
-  { label: "Utilisateurs", href: "/admin/utilisateurs", icon: Users },
-  { label: "Validations", href: "/admin/validations", icon: CheckCircle },
-  { label: "Categories", href: "/admin/categories", icon: FolderOpen },
-  { label: "Communication", href: "/admin/communication", icon: Megaphone },
+  {
+    label: "Tableau de bord",
+    href: "/admin",
+    icon: LayoutDashboard,
+    roles: ["super_admin", "admin", "mayor", "agent_municipal"],
+  },
+  {
+    label: "Mairies",
+    href: "/admin/municipalities",
+    icon: Building,
+    roles: ["super_admin"],
+  },
+  {
+    label: "Utilisateurs enregistres",
+    href: "/admin/utilisateurs",
+    icon: Users,
+    roles: ["super_admin", "admin", "mayor", "agent_municipal"],
+  },
+  {
+    label: "Validations",
+    href: "/admin/validations",
+    icon: CheckCircle,
+    roles: ["super_admin", "admin", "mayor", "agent_municipal"],
+  },
+  {
+    label: "Categories",
+    href: "/admin/categories",
+    icon: FolderOpen,
+    roles: ["super_admin", "admin"],
+  },
+  {
+    label: "Communication",
+    href: "/admin/communication",
+    icon: Megaphone,
+    roles: ["super_admin", "admin", "mayor"],
+  },
 ]
 
 export function AdminSidebar() {
   const pathname = usePathname()
+  const router = useRouter()
+  const userRole = (getStoredUser()?.role || "agent_municipal") as UserRole
+  const navItems = adminNav.filter((item) => item.roles.includes(userRole))
+
+  function handleLogout() {
+    clearAuth()
+    router.replace("/connexion")
+  }
 
   return (
     <Sidebar>
@@ -56,7 +98,7 @@ export function AdminSidebar() {
           <SidebarGroupLabel>Navigation</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
-              {adminNav.map((item) => (
+              {navItems.map((item) => (
                 <SidebarMenuItem key={item.href}>
                   <SidebarMenuButton asChild isActive={pathname === item.href}>
                     <Link href={item.href}>
@@ -72,6 +114,14 @@ export function AdminSidebar() {
       </SidebarContent>
 
       <SidebarFooter className="border-t border-sidebar-border p-4">
+        <button
+          type="button"
+          onClick={handleLogout}
+          className="mb-3 flex w-full items-center gap-2 rounded-md px-2 py-2 text-sm text-sidebar-foreground/80 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+        >
+          <LogOut className="h-4 w-4" />
+          Deconnexion
+        </button>
         <Link
           href="/"
           className="flex items-center gap-2 text-sm text-sidebar-foreground/60 transition-colors hover:text-sidebar-foreground"

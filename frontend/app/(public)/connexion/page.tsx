@@ -9,26 +9,36 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card"
 import { Separator } from "@/components/ui/separator"
-import { LogIn, LayoutDashboard, UserPlus } from "lucide-react"
+import { Eye, EyeOff, LogIn } from "lucide-react"
+import { login, persistAuth } from "@/lib/api"
+import { getDashboardByRole } from "@/lib/auth"
 
 export default function ConnexionPage() {
   const router = useRouter()
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
+  const [showPassword, setShowPassword] = useState(false)
+  const [loading, setLoading] = useState(false)
 
-  function handleLogin(e: React.FormEvent) {
+  async function handleLogin(e: React.FormEvent) {
     e.preventDefault()
     if (!email || !password) {
       toast.error("Veuillez remplir tous les champs")
       return
     }
-    toast.success("Connexion simulee avec succes !")
-    router.push("/profils")
-  }
 
-  function goToAdmin() {
-    toast.success("Acces administration (mode demo)")
-    router.push("/admin")
+    try {
+      setLoading(true)
+      const auth = await login(email, password)
+      persistAuth(auth)
+      toast.success("Connexion reussie")
+      router.push(getDashboardByRole(auth.user.role))
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Echec de la connexion"
+      toast.error(message)
+    } finally {
+      setLoading(false)
+    }
   }
 
   return (
@@ -61,31 +71,36 @@ export default function ConnexionPage() {
               </div>
               <div className="flex flex-col gap-1.5">
                 <Label htmlFor="password">Mot de passe</Label>
-                <Input
-                  id="password"
-                  type="password"
-                  placeholder="Votre mot de passe"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  autoComplete="current-password"
-                />
+                <div className="relative">
+                  <Input
+                    id="password"
+                    type={showPassword ? "text" : "password"}
+                    placeholder="Votre mot de passe"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    autoComplete="current-password"
+                    className="pr-10"
+                  />
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="absolute right-1 top-1/2 h-8 w-8 -translate-y-1/2"
+                    onClick={() => setShowPassword((prev) => !prev)}
+                    aria-label={showPassword ? "Masquer le mot de passe" : "Afficher le mot de passe"}
+                  >
+                    {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </Button>
+                </div>
               </div>
               <Button type="submit" className="w-full">
                 <LogIn className="mr-1.5 h-4 w-4" />
-                Se connecter
+                {loading ? "Connexion..." : "Se connecter"}
               </Button>
             </CardContent>
           </form>
           <CardFooter className="flex flex-col gap-3">
             <Separator />
-            <Button
-              variant="outline"
-              className="w-full"
-              onClick={goToAdmin}
-            >
-              <LayoutDashboard className="mr-1.5 h-4 w-4" />
-              Acceder a {"l'administration"} (demo)
-            </Button>
             <p className="text-center text-sm text-muted-foreground">
               {"Pas encore inscrit ?"}{" "}
               <Link href="/inscription" className="font-medium text-primary hover:underline">
@@ -94,12 +109,6 @@ export default function ConnexionPage() {
             </p>
           </CardFooter>
         </Card>
-
-        <div className="mt-4 rounded-lg border border-border bg-muted/50 p-3">
-          <p className="text-center text-xs text-muted-foreground">
-            {"Mode demonstration : l'authentification est simulee. Cliquez sur \"Administration\" pour acceder au tableau de bord admin."}
-          </p>
-        </div>
       </div>
     </div>
   )

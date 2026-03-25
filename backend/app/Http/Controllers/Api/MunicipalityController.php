@@ -16,11 +16,25 @@ class MunicipalityController extends Controller
     public function __construct()
     {
         $this->middleware(function ($request, $next) {
+            if ($request->route()?->getActionMethod() === 'publicIndex') {
+                return $next($request);
+            }
+
             if ($request->user()->role !== 'super_admin') {
                 return response()->json(['message' => 'Unauthorized'], 403);
             }
             return $next($request);
         });
+    }
+
+    public function publicIndex()
+    {
+        $municipalities = Municipality::query()
+            ->where('is_active', true)
+            ->orderBy('name')
+            ->get(['id', 'name', 'slug', 'location']);
+
+        return response()->json($municipalities);
     }
 
     // Get all municipalities

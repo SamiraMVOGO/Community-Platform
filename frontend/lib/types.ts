@@ -1,6 +1,6 @@
 export type ProfileStatus = "valide" | "en_attente" | "rejete"
 
-export type UserRole = "super_admin" | "admin" | "mayor" | "agent_municipal" | "user"
+export type UserRole = "super_admin" | "admin" | "mayor" | "agent_municipal" | "agent_pending" | "user"
 
 export type Category =
   | "cadre_administratif"
@@ -16,6 +16,7 @@ export const ROLE_LABELS: Record<UserRole, string> = {
   admin: "Administrateur",
   mayor: "Maire",
   agent_municipal: "Agent Municipal",
+  agent_pending: "Agent Municipal (en attente)",
   user: "Utilisateur",
 }
 
@@ -114,10 +115,12 @@ export interface User {
   email: string
   role: UserRole
   municipality_id?: number
+  created_by?: number | null
   is_active: boolean
   created_at: string
   updated_at: string
   municipality?: Municipality
+  creator?: User
 }
 
 export interface Municipality {
@@ -132,4 +135,12 @@ export interface Municipality {
   updated_at: string
   mayor?: User
   agents?: User[]
+}
+
+export interface PaginatedApiData<T> {
+  current_page: number
+  data: T[]
+  last_page: number
+  per_page: number
+  total: number
 }

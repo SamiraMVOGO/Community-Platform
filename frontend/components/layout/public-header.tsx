@@ -2,7 +2,7 @@
 
 import Link from "next/link"
 import { usePathname } from "next/navigation"
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet"
@@ -16,7 +16,11 @@ import {
   UserPlus,
   LogIn,
   LayoutDashboard,
+  LogOut,
 } from "lucide-react"
+import { clearAuth, getStoredUser } from "@/lib/api"
+import { getDashboardByRole, isAdminLikeRole } from "@/lib/auth"
+import type { User } from "@/lib/types"
 
 const navigation = [
   { label: "Accueil", href: "/", icon: BookOpen },
@@ -28,6 +32,18 @@ const navigation = [
 export function PublicHeader() {
   const pathname = usePathname()
   const [open, setOpen] = useState(false)
+  const [user, setUser] = useState<User | null>(null)
+
+  useEffect(() => {
+    setUser(getStoredUser())
+  }, [pathname])
+
+  const dashboardPath = user ? getDashboardByRole(user.role) : "/connexion"
+
+  const handleLogout = () => {
+    clearAuth()
+    setUser(null)
+  }
 
   return (
     <header className="sticky top-0 z-50 border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
@@ -65,24 +81,35 @@ export function PublicHeader() {
         </nav>
 
         <div className="hidden items-center gap-2 md:flex">
-          <Button variant="ghost" size="sm" asChild>
-            <Link href="/connexion">
-              <LogIn className="mr-1.5 h-4 w-4" />
-              Connexion
-            </Link>
-          </Button>
-          <Button size="sm" asChild>
-            <Link href="/inscription">
-              <UserPlus className="mr-1.5 h-4 w-4" />
-              {"S'inscrire"}
-            </Link>
-          </Button>
-          <Button variant="outline" size="sm" asChild>
-            <Link href="/admin">
-              <LayoutDashboard className="mr-1.5 h-4 w-4" />
-              Admin
-            </Link>
-          </Button>
+          {user ? (
+            <>
+              <Button variant="outline" size="sm" asChild>
+                <Link href={dashboardPath}>
+                  <LayoutDashboard className="mr-1.5 h-4 w-4" />
+                  {isAdminLikeRole(user.role) ? "Dashboard" : "Mon espace"}
+                </Link>
+              </Button>
+              <Button variant="ghost" size="sm" onClick={handleLogout}>
+                <LogOut className="mr-1.5 h-4 w-4" />
+                Deconnexion
+              </Button>
+            </>
+          ) : (
+            <>
+              <Button variant="ghost" size="sm" asChild>
+                <Link href="/connexion">
+                  <LogIn className="mr-1.5 h-4 w-4" />
+                  Connexion
+                </Link>
+              </Button>
+              <Button size="sm" asChild>
+                <Link href="/inscription">
+                  <UserPlus className="mr-1.5 h-4 w-4" />
+                  {"S'inscrire"}
+                </Link>
+              </Button>
+            </>
+          )}
         </div>
 
         <Sheet open={open} onOpenChange={setOpen}>
@@ -116,30 +143,48 @@ export function PublicHeader() {
                 </Link>
               ))}
               <div className="my-3 border-t border-border" />
-              <Link
-                href="/connexion"
-                onClick={() => setOpen(false)}
-                className="flex items-center gap-2 rounded-md px-3 py-2.5 text-sm font-medium text-muted-foreground hover:bg-muted hover:text-foreground"
-              >
-                <LogIn className="h-4 w-4" />
-                Connexion
-              </Link>
-              <Link
-                href="/inscription"
-                onClick={() => setOpen(false)}
-                className="flex items-center gap-2 rounded-md bg-primary px-3 py-2.5 text-sm font-medium text-primary-foreground"
-              >
-                <UserPlus className="h-4 w-4" />
-                {"S'inscrire"}
-              </Link>
-              <Link
-                href="/admin"
-                onClick={() => setOpen(false)}
-                className="flex items-center gap-2 rounded-md border border-border px-3 py-2.5 text-sm font-medium text-muted-foreground hover:bg-muted hover:text-foreground"
-              >
-                <LayoutDashboard className="h-4 w-4" />
-                Administration
-              </Link>
+              {user ? (
+                <>
+                  <Link
+                    href={dashboardPath}
+                    onClick={() => setOpen(false)}
+                    className="flex items-center gap-2 rounded-md border border-border px-3 py-2.5 text-sm font-medium text-muted-foreground hover:bg-muted hover:text-foreground"
+                  >
+                    <LayoutDashboard className="h-4 w-4" />
+                    {isAdminLikeRole(user.role) ? "Dashboard" : "Mon espace"}
+                  </Link>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      handleLogout()
+                      setOpen(false)
+                    }}
+                    className="flex items-center gap-2 rounded-md px-3 py-2.5 text-left text-sm font-medium text-muted-foreground hover:bg-muted hover:text-foreground"
+                  >
+                    <LogOut className="h-4 w-4" />
+                    Deconnexion
+                  </button>
+                </>
+              ) : (
+                <>
+                  <Link
+                    href="/connexion"
+                    onClick={() => setOpen(false)}
+                    className="flex items-center gap-2 rounded-md px-3 py-2.5 text-sm font-medium text-muted-foreground hover:bg-muted hover:text-foreground"
+                  >
+                    <LogIn className="h-4 w-4" />
+                    Connexion
+                  </Link>
+                  <Link
+                    href="/inscription"
+                    onClick={() => setOpen(false)}
+                    className="flex items-center gap-2 rounded-md bg-primary px-3 py-2.5 text-sm font-medium text-primary-foreground"
+                  >
+                    <UserPlus className="h-4 w-4" />
+                    {"S'inscrire"}
+                  </Link>
+                </>
+              )}
             </nav>
           </SheetContent>
         </Sheet>

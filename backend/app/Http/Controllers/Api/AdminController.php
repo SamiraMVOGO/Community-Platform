@@ -7,6 +7,7 @@ use App\Models\Profile;
 use App\Models\User;
 use App\Models\ActivityLog;
 use Illuminate\Http\Request;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class AdminController extends Controller
 {
@@ -25,7 +26,7 @@ class AdminController extends Controller
     public function pendingProfiles()
     {
         $user = auth()->user();
-        $query = Profile::with('user', 'category')
+        $query = Profile::with('user.municipality', 'category', 'documents')
             ->where('status', 'pending');
 
         // If municipal agent, only show profiles from their municipality
@@ -39,19 +40,26 @@ class AdminController extends Controller
             });
         }
 
-        $profiles = $query->paginate(15);
+        $profiles = $query->orderBy('created_at', 'desc')->paginate(15);
 
         return response()->json($profiles);
     }
 
     public function approveProfile(Request $request, $id)
     {
-        $profile = Profile::findOrFail($id);
+        $profile = Profile::with('user')->findOrFail($id);
+        $wasAgentCandidate = $profile->user && $profile->user->role === 'agent_pending';
         $profile->update(['status' => 'approved']);
+
+        if ($wasAgentCandidate) {
+            $profile->user->update(['role' => 'agent_municipal']);
+        }
 
         ActivityLog::create([
             'user_id' => $request->user()->id,
-            'action' => 'approved_profile',
+            'action' => $wasAgentCandidate
+                ? 'approved_agent_candidate'
+                : 'approved_profile',
             'model' => 'Profile',
             'model_id' => $id,
             'ip_address' => $request->ip(),
@@ -62,12 +70,19 @@ class AdminController extends Controller
 
     public function rejectProfile(Request $request, $id)
     {
-        $profile = Profile::findOrFail($id);
+        $profile = Profile::with('user')->findOrFail($id);
+        $wasAgentCandidate = $profile->user && $profile->user->role === 'agent_pending';
         $profile->update(['status' => 'rejected']);
+
+        if ($wasAgentCandidate) {
+            $profile->user->update(['role' => 'user']);
+        }
 
         ActivityLog::create([
             'user_id' => $request->user()->id,
-            'action' => 'rejected_profile',
+            'action' => $wasAgentCandidate
+                ? 'rejected_agent_candidate'
+                : 'rejected_profile',
             'model' => 'Profile',
             'model_id' => $id,
             'ip_address' => $request->ip(),
@@ -79,16 +94,20 @@ class AdminController extends Controller
     public function users()
     {
         $user = auth()->user();
-        $query = User::with('municipality');
+        $query = User::with(['municipality', 'creator']);
 
         // If municipal agent or mayor, only show users from their municipality
         if ($user->role === 'agent_municipal' && $user->municipality_id) {
-            $query->where('municipality_id', $user->municipality_id);
+            $query->where('municipality_id', $user->municipality_id)
+                ->where(function ($q) use ($user) {
+                    $q->where('created_by', $user->id)
+                        ->orWhere('id', $user->id);
+                });
         } elseif ($user->role === 'mayor' && $user->municipality_id) {
             $query->where('municipality_id', $user->municipality_id);
         }
 
-        $users = $query->paginate(15);
+        $users = $query->orderBy('created_at', 'desc')->paginate(15);
         return response()->json($users);
     }
 
@@ -102,7 +121,89 @@ class AdminController extends Controller
 
     public function activityLogs()
     {
+        if (!in_array(auth()->user()->role, ['super_admin', 'admin'])) {
+            return response()->json(['message' => 'Unauthorized'], 403);
+        }
+
         $logs = ActivityLog::with('user')->latest()->paginate(30);
         return response()->json($logs);
+    }
+
+    public function exportUsersCsv(Request $request): StreamedResponse
+    {
+        $authUser = $request->user();
+        $query = User::with('municipality');
+
+        if (in_array($authUser->role, ['mayor', 'agent_municipal']) && $authUser->municipality_id) {
+            $query->where('municipality_id', $authUser->municipality_id);
+        }
+
+        $users = $query->orderBy('created_at', 'desc')->get();
+
+        return response()->streamDownload(function () use ($users) {
+            $handle = fopen('php://output', 'w');
+            fputcsv($handle, ['id', 'name', 'email', 'role', 'municipality', 'active', 'created_at']);
+
+            foreach ($users as $user) {
+                fputcsv($handle, [
+                    $user->id,
+                    $user->name,
+                    $user->email,
+                    $user->role,
+                    optional($user->municipality)->name,
+                    $user->is_active ? 'yes' : 'no',
+                    optional($user->created_at)->toDateTimeString(),
+                ]);
+            }
+
+            fclose($handle);
+        }, 'users_export.csv', ['Content-Type' => 'text/csv']);
+    }
+
+    public function exportProfilesCsv(Request $request): StreamedResponse
+    {
+        $authUser = $request->user();
+        $query = Profile::with(['user', 'category']);
+
+        if (in_array($authUser->role, ['mayor', 'agent_municipal']) && $authUser->municipality_id) {
+            $query->whereHas('user', function ($q) use ($authUser) {
+                $q->where('municipality_id', $authUser->municipality_id);
+            });
+        }
+
+        $profiles = $query->orderBy('created_at', 'desc')->get();
+
+        return response()->streamDownload(function () use ($profiles) {
+            $handle = fopen('php://output', 'w');
+            fputcsv($handle, [
+                'id',
+                'user_name',
+                'user_email',
+                'category',
+                'sector',
+                'education_level',
+                'location',
+                'phone',
+                'status',
+                'created_at',
+            ]);
+
+            foreach ($profiles as $profile) {
+                fputcsv($handle, [
+                    $profile->id,
+                    optional($profile->user)->name,
+                    optional($profile->user)->email,
+                    optional($profile->category)->name,
+                    $profile->sector,
+                    $profile->education_level,
+                    $profile->location,
+                    $profile->phone,
+                    $profile->status,
+                    optional($profile->created_at)->toDateTimeString(),
+                ]);
+            }
+
+            fclose($handle);
+        }, 'profiles_export.csv', ['Content-Type' => 'text/csv']);
     }
 }

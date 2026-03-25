@@ -24,6 +24,9 @@ interface ProfileFiltersProps {
   onSearchChange: (v: string) => void
   categorie: string
   onCategorieChange: (v: string) => void
+  commune: string
+  onCommuneChange: (v: string) => void
+  communes: Array<{ id: number; name: string }>
   secteur: string
   onSecteurChange: (v: string) => void
   niveauEtude: string
@@ -40,6 +43,9 @@ export function ProfileFilters({
   onSearchChange,
   categorie,
   onCategorieChange,
+  commune,
+  onCommuneChange,
+  communes,
   secteur,
   onSecteurChange,
   niveauEtude,
@@ -51,7 +57,7 @@ export function ProfileFilters({
   onReset,
 }: ProfileFiltersProps) {
   const [filtersOpen, setFiltersOpen] = useState(false)
-  const hasFilters = categorie || secteur || niveauEtude
+  const hasFilters = categorie || commune || secteur || niveauEtude
 
   return (
     <div className="flex flex-col gap-4">
@@ -97,7 +103,7 @@ export function ProfileFilters({
               Filtres avances
               {hasFilters && (
                 <span className="ml-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-primary text-xs text-primary-foreground">
-                  {[categorie, secteur, niveauEtude].filter(Boolean).length}
+                  {[categorie, commune, secteur, niveauEtude].filter(Boolean).length}
                 </span>
               )}
             </Button>
@@ -118,7 +124,7 @@ export function ProfileFilters({
         </div>
 
         <CollapsibleContent className="mt-3">
-          <div className="grid gap-3 rounded-lg border border-border bg-muted/30 p-4 sm:grid-cols-3">
+          <div className="grid gap-3 rounded-lg border border-border bg-muted/30 p-4 sm:grid-cols-4">
             <div className="flex flex-col gap-1.5">
               <Label className="text-xs">Categorie</Label>
               <Select value={categorie} onValueChange={onCategorieChange}>
@@ -127,8 +133,23 @@ export function ProfileFilters({
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">Toutes les categories</SelectItem>
+                  <SelectItem value="cadres">Cadres (administratifs + techniques)</SelectItem>
                   {Object.entries(CATEGORY_LABELS).map(([key, label]) => (
                     <SelectItem key={key} value={key}>{label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <Label className="text-xs">Commune</Label>
+              <Select value={commune} onValueChange={onCommuneChange}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Toutes" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Toutes les communes</SelectItem>
+                  {communes.map((c) => (
+                    <SelectItem key={c.id} value={String(c.id)}>{c.name}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
